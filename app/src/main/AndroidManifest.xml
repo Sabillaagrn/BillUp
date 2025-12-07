@@ -20,6 +20,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BillUp">
         <activity
+            android:name=".SummaryActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SplitActivity"
+            android:exported="false" />
+        <activity
             android:name=".ResultActivity"
             android:exported="false" />
         <activity

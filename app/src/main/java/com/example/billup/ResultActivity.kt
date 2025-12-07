@@ -1,10 +1,10 @@
 package com.example.billup
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.Build // <-- IMPORT INI
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.ProgressBar
@@ -12,31 +12,40 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
-import com.example.billup.Contact
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.File
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
-import java.util.Locale
 import java.util.ArrayList
-
-private val API_KEY = "AIzaSyD0-xdnhf0ezR1lLPnw_U_ZtIrHrQQVgEI"
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class ResultActivity : AppCompatActivity() {
 
     private lateinit var progressBar: ProgressBar
     private lateinit var contentLayout: View
+    private lateinit var lastReceiptData: ReceiptData // Menyimpan data untuk dikirim ke Intent
     private var selectedContacts: ArrayList<Contact>? = null
+
+    // API Key TabScanner dari Anda
+    private val API_KEY = "djSaXlBOS47VHbTGWP7Yc1NMHhvmf7PQYyUeFBQRMiqaQVTLQCCpyL4wQIsCvBWd"
+
+    // Client OkHttp dengan timeout yang cukup panjang karena proses OCR butuh waktu
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,216 +57,243 @@ class ResultActivity : AppCompatActivity() {
         contentLayout.visibility = View.GONE
         progressBar.visibility = View.VISIBLE
 
-        // --- INI ADALAH BAGIAN YANG DIPERBARUI ---
+        // --- AMBIL DATA KONTAK ---
         selectedContacts = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getSerializableExtra("SELECTED_CONTACTS", ArrayList::class.java) as? ArrayList<Contact>
         } else {
             @Suppress("DEPRECATION")
             intent.getSerializableExtra("SELECTED_CONTACTS") as? ArrayList<Contact>
         }
-        // ------------------------------------------
 
         val photoPath = intent.getStringExtra("PHOTO_PATH")
 
         if (photoPath != null) {
-            val bitmap = BitmapFactory.decodeFile(photoPath)
-            if (bitmap != null) {
-                recognizeText(bitmap)
+            val file = File(photoPath)
+            if (file.exists()) {
+                // Proses langsung menggunakan File, tidak perlu Bitmap untuk TabScanner
+                processReceiptWithTabScanner(file)
             } else {
-                Toast.makeText(this, "Gagal memuat gambar", Toast.LENGTH_SHORT).show()
-                progressBar.visibility = View.GONE
+                Toast.makeText(this, "File gambar tidak ditemukan", Toast.LENGTH_SHORT).show()
+                finish()
             }
         } else {
-            Toast.makeText(this, "Path gambar tidak ditemukan.", Toast.LENGTH_LONG).show()
-            progressBar.visibility = View.GONE
+            Toast.makeText(this, "Path gambar null.", Toast.LENGTH_LONG).show()
+            finish()
         }
-
 
         findViewById<Button>(R.id.btn_retake).setOnClickListener {
             finish()
         }
 
         findViewById<Button>(R.id.btn_confirm).setOnClickListener {
-
+            // Pastikan data sudah siap sebelum pindah
+            if (this::lastReceiptData.isInitialized && selectedContacts != null) {
+                val intent = Intent(this, SplitActivity::class.java)
+                intent.putExtra("RECEIPT_DATA", lastReceiptData)
+                intent.putExtra("SELECTED_CONTACTS", selectedContacts)
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "Data belum siap atau masih memproses...", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-    private fun recognizeText(bitmap: Bitmap) {
-        val image = InputImage.fromBitmap(bitmap, 0)
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    // --- LOGIKA UTAMA TABSCANNER ---
 
-        recognizer.process(image)
-            .addOnSuccessListener { ocrText ->
-                val fullText = ocrText.text ?: ""
-
-                if (fullText.isNotBlank()) {
-                    parseReceiptWithGemini(fullText)
-                } else {
-                    Toast.makeText(this, "Tidak ada teks yang terdeteksi", Toast.LENGTH_SHORT).show()
-                    progressBar.visibility = View.GONE
-                }
-            }
-            .addOnFailureListener { e ->
-                Toast.makeText(this, "Failed to recognize text: ${e.message}", Toast.LENGTH_SHORT)
-                    .show()
-                progressBar.visibility = View.GONE
-            }
-    }
-
-    private fun parseReceiptWithGemini(recognizedText: String) {
+    private fun processReceiptWithTabScanner(imageFile: File) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val prompt = """
-                Kamu adalah asisten yang ahli membaca struk belanja Indonesia.
+                // 1. UPLOAD IMAGE
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@ResultActivity, "Mengunggah gambar...", Toast.LENGTH_SHORT).show()
+                }
 
-                Teks struk (hasil OCR):
-                ---
-                $recognizedText
-                ---
+                val token = uploadImage(imageFile)
 
-                Tugas:
-                1. Abaikan teks yang bukan rincian belanja.
-                2. Ambil hanya bagian yang biasanya ada di invoice:
-                    - Nama toko
-                    - Tanggal dan/atau jam transaksi
-                    - Daftar item belanja (nama barang, qty, harga satuan, total per item)
-                    - Subtotal
-                    - Diskon (jika ada, baik berupa potongan harga atau diskun item)
-                    - Pajak / PPN (jika ada)
-                    - Total bayar
-                3. Tampilkan hasil dalam format teks yang dipisahkan oleh delimiter | (JANGAN JSON):
-
-                // Format Header: NamaToko|Tanggal|Subtotal|Diskon|Pajak|Total
-                NamaToko|Tanggal|Subtotal|Diskon|Pajak|Total
-
-                // Format Item (ulangi untuk setiap item):
-                ITEM|NAMA BARANG|QTY|HARGA SATUAN|TOTAL PER ITEM
-
-                Jika suatu nilai tidak ditemukan di teks, isi dengan tanda "-".
-                Kirim HANYA teks yang dipisahkan delimiter tersebut, tanpa penjelasan lain.
-                """.trimIndent()
-
-                val requestJson = JSONObject()
-                requestJson.put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", prompt)
-                            })
-                        })
-                    })
-                })
-
-                val url = URL(
-                    "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=$API_KEY"
-                )
-
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                conn.doOutput = true
-
-                val os = OutputStreamWriter(conn.outputStream, Charsets.UTF_8)
-                os.write(requestJson.toString())
-                os.flush()
-                os.close()
-
-                val responseCode = conn.responseCode
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    val responseStream = conn.inputStream.bufferedReader().use { it.readText() }
-                    val responseJson = JSONObject(responseStream)
-
-                    val candidates = responseJson.optJSONArray("candidates")
-                    val invoiceText = if (candidates != null && candidates.length() > 0) {
-                        val content = candidates
-                            .getJSONObject(0)
-                            .getJSONObject("content")
-                        val parts = content.getJSONArray("parts")
-                        parts.getJSONObject(0).getString("text")
-                    } else {
-                        "Tidak ada respons dari Gemini."
+                if (token != null) {
+                    // 2. POLLING RESULT (Menunggu hasil)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@ResultActivity, "Sedang memproses struk...", Toast.LENGTH_SHORT).show()
                     }
 
-                    withContext(Dispatchers.Main) {
-                        val receiptData = parseGeminiOutput(invoiceText)
-                        displayReceiptData(receiptData)
+                    val jsonResult = pollResult(token)
 
-                        progressBar.visibility = View.GONE
-                        contentLayout.visibility = View.VISIBLE
+                    if (jsonResult != null) {
+                        // 3. PARSING & DISPLAY
+                        val data = parseTabScannerJson(jsonResult)
+
+                        withContext(Dispatchers.Main) {
+                            displayReceiptData(data)
+                            progressBar.visibility = View.GONE
+                            contentLayout.visibility = View.VISIBLE
+                        }
+                    } else {
+                        showError("Gagal mendapatkan hasil dari TabScanner (Timeout/Error).")
                     }
                 } else {
-                    val err = conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    withContext(Dispatchers.Main) {
-                        progressBar.visibility = View.GONE
-                        Toast.makeText(
-                            this@ResultActivity,
-                            "Gemini API error ($responseCode): $err",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                    showError("Gagal mengunggah gambar. Cek koneksi internet.")
                 }
-                conn.disconnect()
 
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    Toast.makeText(
-                        this@ResultActivity,
-                        "Parsing error: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+                e.printStackTrace()
+                showError("Terjadi kesalahan: ${e.message}")
             }
         }
     }
 
+    // Fungsi 1: Upload Gambar ke TabScanner
+    private fun uploadImage(file: File): String? {
+        val mediaType = "image/jpeg".toMediaTypeOrNull()
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("receiptImage", file.name, file.asRequestBody(mediaType))
+            .build()
 
-    private fun parseGeminiOutput(rawText: String): ReceiptData {
-        val lines = rawText.trim().split("\n")
-        var headerLine: String? = null
-        val itemLines = mutableListOf<String>()
+        val request = Request.Builder()
+            .url("https://api.tabscanner.com/api/2/process")
+            .addHeader("apikey", API_KEY)
+            .post(requestBody)
+            .build()
 
-        for (line in lines) {
-            if (line.startsWith("ITEM|")) {
-                itemLines.add(line.substring(5))
-            } else if (headerLine == null && line.contains("|")) {
-                headerLine = line
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.e("TabScanner", "Upload Failed: ${response.code}")
+                return null
+            }
+
+            val responseBody = response.body?.string() ?: return null
+            val json = JSONObject(responseBody)
+
+            // TabScanner mengembalikan 'token' untuk mengambil hasil
+            // Respons sukses biasanya code 200 dan message "Success"
+            return if (json.optInt("code") == 200 || json.has("token")) {
+                json.optString("token")
+            } else {
+                Log.e("TabScanner", "Error JSON: $responseBody")
+                null
             }
         }
+    }
 
-        val headerParts = headerLine?.split("|") ?: listOf("-", "-", "-", "-", "-", "-")
+    // Fungsi 2: Cek Hasil (Polling) sampai status 'done'
+    private suspend fun pollResult(token: String): JSONObject? {
+        val maxRetries = 15 // Coba 15 kali (15 x 2 detik = 30 detik maks tunggu)
+        var attempts = 0
 
-        val items = itemLines.map { itemLine ->
-            val parts = itemLine.split("|")
-            ReceiptItem(
-                name = parts.getOrElse(0) { "-" },
-                quantity = parts.getOrElse(1) { "0" }.toIntOrNull() ?: 0,
-                unitPrice = parts.getOrElse(2) { "-" },
-                total = parts.getOrElse(3) { "-" }
-            )
+        while (attempts < maxRetries) {
+            attempts++
+
+            val request = Request.Builder()
+                .url("https://api.tabscanner.com/api/result/$token")
+                .addHeader("apikey", API_KEY)
+                .get()
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    val bodyString = response.body?.string()
+                    if (bodyString != null) {
+                        val json = JSONObject(bodyString)
+                        val status = json.optString("status") // 'pending' atau 'done'
+
+                        Log.d("TabScanner", "Attempt $attempts: Status = $status")
+
+                        if (status == "done") {
+                            return json.optJSONObject("result")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TabScanner", "Polling error", e)
+            }
+
+            // Tunggu 2 detik sebelum cek lagi
+            delay(2000)
+        }
+        return null
+    }
+
+    // Fungsi 3: Parsing JSON TabScanner ke Object ReceiptData
+    private fun parseTabScannerJson(resultJson: JSONObject): ReceiptData {
+        // Ambil data Establishment (Toko)
+        val establishmentStr = resultJson.optString("establishment", "Toko Tidak Dikenal")
+
+        // Ambil Tanggal (Format biasanya YYYY-MM-DD HH:MM:SS)
+        val dateStr = resultJson.optString("date", "-")
+
+        // Ambil Total
+        val totalStr = resultJson.optString("total", "0")
+        val subTotalStr = resultJson.optString("subTotal", "0")
+        val taxStr = resultJson.optString("tax", "0")
+        // TabScanner kadang tidak memisahkan diskon, set default 0
+        val discountStr = resultJson.optString("discount", "0")
+
+        // Ambil Line Items
+        val itemsList = ArrayList<ReceiptItem>()
+        val lineItems = resultJson.optJSONArray("lineItems")
+
+        if (lineItems != null) {
+            for (i in 0 until lineItems.length()) {
+                val itemObj = lineItems.getJSONObject(i)
+
+                // TabScanner punya field 'descClean' (lebih rapi) atau 'desc' (raw)
+                var desc = itemObj.optString("descClean")
+                if (desc.isEmpty()) desc = itemObj.optString("desc", "Item")
+
+                val qty = itemObj.optInt("qty", 1)
+                val lineTotal = itemObj.optString("lineTotal", "0")
+
+                // Hitung harga satuan jika tidak ada
+                val unitPrice = itemObj.optString("unitPrice", "0")
+                val finalUnitPrice = if (unitPrice == "0" || unitPrice.isEmpty()) {
+                    try {
+                        val totalVal = lineTotal.replace("[^0-9.]".toRegex(), "").toDouble()
+                        (totalVal / qty).toString()
+                    } catch (e:Exception) { "0" }
+                } else {
+                    unitPrice
+                }
+
+                itemsList.add(
+                    ReceiptItem(
+                        name = desc,
+                        quantity = qty,
+                        unitPrice = finalUnitPrice,
+                        total = lineTotal
+                    )
+                )
+            }
         }
 
         return ReceiptData(
-            storeName = headerParts.getOrElse(0) { "Nama Toko Tidak Ditemukan" },
-            date = headerParts.getOrElse(1) { "Tanggal Tidak Ditemukan" },
-            subtotal = headerParts.getOrElse(2) { "0" },
-            discount = headerParts.getOrElse(3) { "0" },
-            tax = headerParts.getOrElse(4) { "0" },
-            grandTotal = headerParts.getOrElse(5) { "0" },
-            items = items
+            storeName = establishmentStr,
+            date = dateStr,
+            subtotal = if (subTotalStr.isEmpty() || subTotalStr == "0") totalStr else subTotalStr, // Fallback ke total jika subtotal kosong
+            discount = discountStr,
+            tax = taxStr,
+            grandTotal = totalStr,
+            items = itemsList
         )
     }
 
+    // --- HELPER FUNCTIONS ---
+
+    private suspend fun showError(msg: String) {
+        withContext(Dispatchers.Main) {
+            progressBar.visibility = View.GONE
+            Toast.makeText(this@ResultActivity, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun displayReceiptData(data: ReceiptData) {
+        lastReceiptData = data // Simpan ke variabel global untuk Intent
+
         findViewById<TextView>(R.id.tv_store_name).text = data.storeName
-        findViewById<TextView>(R.id.tv_transaction_date).text = data.date
+        // Ambil tanggal saja (YYYY-MM-DD) dari string panjang
+        findViewById<TextView>(R.id.tv_transaction_date).text = data.date.split(" ")[0]
 
         findViewById<TextView>(R.id.tv_subtotal_value).text = formatCurrency(data.subtotal)
-
-        val diskonRaw = data.discount.replace("[^0-9]".toRegex(), "")
-        val diskonValue = if (diskonRaw.isEmpty() || diskonRaw == "0") "0,00" else "-${formatCurrency(diskonRaw).removePrefix("Rp ")}"
-        findViewById<TextView>(R.id.tv_diskon_value).text = diskonValue
-
+        findViewById<TextView>(R.id.tv_diskon_value).text = formatCurrency(data.discount)
         findViewById<TextView>(R.id.tv_pajak_value).text = formatCurrency(data.tax)
         findViewById<TextView>(R.id.tv_grand_total_value).text = formatCurrency(data.grandTotal)
 
@@ -267,13 +303,16 @@ class ResultActivity : AppCompatActivity() {
 
     private fun formatCurrency(amount: String): String {
         return try {
-            val numString = amount.replace("[^0-9]".toRegex(), "")
-            if (numString.isEmpty()) return amount
-            val num = numString.toLong()
+            // Bersihkan string dari simbol mata uang lain & ambil angkanya
+            // TabScanner return "10000.00", kita perlu parse ke Double
+            val cleanAmount = amount.replace("[^0-9.]".toRegex(), "")
+            if (cleanAmount.isEmpty()) return "Rp 0"
+
+            val num = cleanAmount.toDouble()
             val formatter = DecimalFormat("#,###", DecimalFormatSymbols(Locale("id", "ID")))
             "Rp ${formatter.format(num)}"
         } catch (e: Exception) {
-            amount
+            amount // Kembalikan teks asli jika gagal parsing
         }
     }
 }
