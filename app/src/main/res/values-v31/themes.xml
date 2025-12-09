@@ -1,0 +1,31 @@
+<resources>
+
+    <!-- Base theme aplikasi -->
+    <style name="Base.Theme.BillUp" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Primary color -->
+        <item name="colorPrimary">@color/hijau</item>
+        <item name="colorPrimaryVariant">@color/hijau</item>
+        <item name="android:statusBarColor">@color/hijau</item>
+
+        <!-- Checkbox tanpa tint -->
+        <item name="android:checkboxStyle">@style/NoTint</item>
+        <item name="checkboxStyle">@style/NoTint</item>
+
+        <!-- Splash screen (Android 12+) -->
+        <item name="android:windowSplashScreenBackground">@color/hijau</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimationDuration">300</item>
+    </style>
+
+    <!-- Theme utama aplikasi -->
+    <style name="Theme.BillUp" parent="Base.Theme.BillUp" />
+
+    <!-- Checkbox tanpa tint -->
+    <style name="NoTint">
+        <item name="colorControlNormal">@android:color/transparent</item>
+        <item name="colorControlActivated">@android:color/transparent</item>
+        <item name="colorControlHighlight">@android:color/transparent</item>
+    </style>
+
+</resources>

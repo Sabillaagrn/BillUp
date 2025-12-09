@@ -1,47 +1,98 @@
 package com.example.billup
 
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import java.io.Serializable
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
-import java.util.Locale
-import java.util.ArrayList
+import java.util.*
+
+data class MemberSummary(
+    val contact: Contact,
+    val items: List<ReceiptItem>,
+    val subtotal: Double,
+    val tax: Double,
+    val total: Double
+) : Serializable
 
 class SummaryActivity : AppCompatActivity() {
 
-    private lateinit var rvSummary: RecyclerView
+    private lateinit var containerAvatar1: LinearLayout
+    private lateinit var containerAvatar2: LinearLayout
+    private lateinit var containerAvatar3: LinearLayout
+    private lateinit var avatar1: MaterialCardView
+    private lateinit var avatar2: MaterialCardView
+    private lateinit var avatar3: MaterialCardView
+    private lateinit var tvAvatar1: TextView
+    private lateinit var tvAvatar2: TextView
+    private lateinit var tvAvatar3: TextView
+    private lateinit var tvName1: TextView
+    private lateinit var tvName2: TextView
+    private lateinit var tvName3: TextView
+
+    private lateinit var rvSummaryItems: RecyclerView
+    private lateinit var tvTaxValue: TextView
+    private lateinit var tvGrandTotal: TextView
+    private lateinit var fabWhatsapp: FloatingActionButton
+
+    private var selectedContact: Contact? = null
+    private var contacts = arrayListOf<Contact>()
+    private var memberSummaries = mutableMapOf<String, MemberSummary>()
     private lateinit var receiptData: ReceiptData
-    private lateinit var members: List<Contact>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_summary)
 
-        rvSummary = findViewById(R.id.rv_summary_cards)
+        initViews()
+        loadDataFromIntent()
+        calculateSummaries()
+        setupAvatars()
 
-
-        val btnFinish: Button = findViewById(R.id.btn_finish_summary)
-
-        btnFinish.setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            // Menghapus history activity agar user memulai fresh di halaman utama
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            startActivity(intent)
-            finish()
+        // Default select first member
+        if (contacts.isNotEmpty()) {
+            selectContact(contacts[0])
         }
+    }
 
-        // Ambil data dari Intent
+    private fun initViews() {
+        containerAvatar1 = findViewById(R.id.container_avatar_1)
+        containerAvatar2 = findViewById(R.id.container_avatar_2)
+        containerAvatar3 = findViewById(R.id.container_avatar_3)
+        avatar1 = findViewById(R.id.avatar_1)
+        avatar2 = findViewById(R.id.avatar_2)
+        avatar3 = findViewById(R.id.avatar_3)
+        tvAvatar1 = findViewById(R.id.tv_avatar_1)
+        tvAvatar2 = findViewById(R.id.tv_avatar_2)
+        tvAvatar3 = findViewById(R.id.tv_avatar_3)
+        tvName1 = findViewById(R.id.tv_name_1)
+        tvName2 = findViewById(R.id.tv_name_2)
+        tvName3 = findViewById(R.id.tv_name_3)
+        rvSummaryItems = findViewById(R.id.rv_summary_items)
+        tvTaxValue = findViewById(R.id.tv_tax_value)
+        tvGrandTotal = findViewById(R.id.tv_grand_total)
+        fabWhatsapp = findViewById(R.id.fab_whatsapp)
+
+        rvSummaryItems.layoutManager = LinearLayoutManager(this)
+
+        fabWhatsapp.setOnClickListener {
+            sendWhatsAppMessage()
+        }
+    }
+
+    private fun loadDataFromIntent() {
         receiptData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getSerializableExtra("RECEIPT_DATA", ReceiptData::class.java)!!
         } else {
@@ -49,140 +100,194 @@ class SummaryActivity : AppCompatActivity() {
             intent.getSerializableExtra("RECEIPT_DATA") as ReceiptData
         }
 
-        members = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        contacts = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getSerializableExtra("MEMBERS", ArrayList::class.java) as ArrayList<Contact>
         } else {
             @Suppress("DEPRECATION")
             intent.getSerializableExtra("MEMBERS") as ArrayList<Contact>
         }
 
-        setupRecyclerView()
+        if (contacts.isEmpty()) {
+            Toast.makeText(this, "Tidak ada member", Toast.LENGTH_LONG).show()
+            finish()
+        }
     }
 
-    private fun setupRecyclerView() {
-        val adapter = SummaryAdapter(receiptData, members)
-        rvSummary.layoutManager = LinearLayoutManager(this)
-        rvSummary.adapter = adapter
-    }
-}
+    private fun calculateSummaries() {
+        // Parse tax dari receipt
+        val totalTax = receiptData.tax.replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: 0.0
 
-class SummaryAdapter(
-    private val receiptData: ReceiptData,
-    private val members: List<Contact>
-) : RecyclerView.Adapter<SummaryAdapter.SummaryViewHolder>() {
-
-    inner class SummaryViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val tvName: TextView = itemView.findViewById(R.id.tv_member_name)
-        val tvItems: TextView = itemView.findViewById(R.id.tv_items_list)
-        val tvTotal: TextView = itemView.findViewById(R.id.tv_member_total)
-        val btnWA: Button = itemView.findViewById(R.id.btn_send_wa)
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SummaryViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_summary_card, parent, false)
-        return SummaryViewHolder(view)
-    }
-
-    override fun onBindViewHolder(holder: SummaryViewHolder, position: Int) {
-        val member = members[position]
-
-        // Gunakan Double untuk perhitungan agar hasil pembagian akurat
-        var totalAmount: Double = 0.0
-        val itemsStringBuilder = StringBuilder()
-
-        // Loop semua item yang ada di struk
+        // Hitung total subtotal dari semua items
+        var grandSubtotal = 0.0
         receiptData.items.forEach { item ->
-            // Cek apakah member ini termasuk dalam list pemilik item tersebut
-            if (item.assignedToIds.contains(member.id)) {
+            val itemTotal = item.total.replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: 0.0
+            grandSubtotal += itemTotal
+        }
 
-                // Parsing harga original item (bersihkan karakter non-digit)
-                val priceFull = item.total.replace("[^0-9]".toRegex(), "").toDoubleOrNull() ?: 0.0
+        // Hitung summary untuk setiap member
+        contacts.forEach { contact ->
+            val memberItems = mutableListOf<ReceiptItem>()
+            var memberSubtotal = 0.0
 
-                // Hitung berapa orang yang menanggung item ini
-                val sharersCount = item.assignedToIds.size
+            receiptData.items.forEach { item ->
+                // Hitung berapa qty yang diambil member ini
+                val qtyForMember = item.assignedToIds.count { it == contact.id }
 
-                // Hitung harga per orang
-                val pricePerPerson = if (sharersCount > 0) priceFull / sharersCount else 0.0
+                if (qtyForMember > 0) {
+                    // Parse harga
+                    val itemTotal = item.total.replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: 0.0
+                    val unitPrice = item.unitPrice.replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: 0.0
 
-                // Tambahkan ke total tagihan member ini
-                totalAmount += pricePerPerson
+                    val pricePerItem = if (unitPrice > 0) {
+                        unitPrice
+                    } else if (item.quantity > 0) {
+                        itemTotal / item.quantity
+                    } else {
+                        itemTotal
+                    }
 
-                // Format teks rincian
-                val formattedPrice = formatCurrency(pricePerPerson.toLong())
+                    // Total untuk member ini dari item ini
+                    val memberItemTotal = pricePerItem * qtyForMember
+                    memberSubtotal += memberItemTotal
 
-                if (sharersCount > 1) {
-                    // Jika item patungan
-                    itemsStringBuilder.append("- ${item.name} (Patungan $sharersCount org): $formattedPrice\n")
-                } else {
-                    // Jika item sendiri
-                    itemsStringBuilder.append("- ${item.name}: $formattedPrice\n")
+                    // Tambahkan ke list dengan quantity yang sesuai
+                    memberItems.add(
+                        ReceiptItem(
+                            name = item.name,
+                            quantity = qtyForMember,
+                            unitPrice = formatNumber(pricePerItem),
+                            total = formatNumber(memberItemTotal),
+                            assignedToIds = arrayListOf(contact.id)
+                        )
+                    )
                 }
             }
+
+            // Hitung pajak proporsional
+            val memberTaxProportion = if (grandSubtotal > 0) {
+                (memberSubtotal / grandSubtotal) * totalTax
+            } else {
+                0.0
+            }
+
+            // Total = subtotal + pajak
+            val memberTotal = memberSubtotal + memberTaxProportion
+
+            memberSummaries[contact.id] = MemberSummary(
+                contact = contact,
+                items = memberItems,
+                subtotal = memberSubtotal,
+                tax = memberTaxProportion,
+                total = memberTotal
+            )
+        }
+    }
+
+    private fun setupAvatars() {
+        val containers = listOf(containerAvatar1, containerAvatar2, containerAvatar3)
+        val avatars = listOf(avatar1, avatar2, avatar3)
+        val names = listOf(tvName1, tvName2, tvName3)
+        val avatarTexts = listOf(tvAvatar1, tvAvatar2, tvAvatar3)
+
+        for (i in containers.indices) {
+            if (i < contacts.size) {
+                val contact = contacts[i]
+
+                // Set nama
+                names[i].text = contact.name
+
+                // Set initial avatar
+                val initial = contact.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+                avatarTexts[i].text = initial
+
+                // Set click listener
+                avatars[i].setOnClickListener { selectContact(contact) }
+
+                // Show container
+                containers[i].visibility = View.VISIBLE
+            } else {
+                // Hide unused containers
+                containers[i].visibility = View.GONE
+            }
         }
 
-        // --- Tampilkan ke UI ---
-        holder.tvName.text = member.name
-        holder.tvItems.text = if (itemsStringBuilder.isNotEmpty()) itemsStringBuilder.toString() else "Tidak ada item."
+        // Update colors
+        updateAvatarColors()
+    }
 
-        // Convert total akhir kembali ke Long untuk format Rupiah
-        holder.tvTotal.text = formatCurrency(totalAmount.toLong())
+    private fun selectContact(contact: Contact) {
+        selectedContact = contact
+        updateAvatarColors()
+        displaySummaryForContact(contact)
+    }
 
-        // Konfigurasi Tombol WA
-        if (member.id == "0") {
-            // Jika "Saya", tombol sembunyikan (karena user sendiri yang bayar kasir)
-            holder.btnWA.visibility = View.GONE
-        } else {
-            holder.btnWA.visibility = View.VISIBLE
-            holder.btnWA.setOnClickListener {
-                sendWhatsApp(holder.itemView.context, member, itemsStringBuilder.toString(), totalAmount.toLong())
+    private fun updateAvatarColors() {
+        val selectedColor = Color.parseColor("#34656D")
+        val unselectedColor = Color.parseColor("#B8B8B8")
+        val avatars = listOf(avatar1, avatar2, avatar3)
+
+        for (i in avatars.indices) {
+            if (i < contacts.size) {
+                val isSelected = contacts[i].id == selectedContact?.id
+                val color = if (isSelected) selectedColor else unselectedColor
+                avatars[i].setCardBackgroundColor(color)
             }
         }
     }
 
-    override fun getItemCount(): Int = members.size
+    private fun displaySummaryForContact(contact: Contact) {
+        val summary = memberSummaries[contact.id] ?: return
 
-    private fun sendWhatsApp(context: android.content.Context, member: Contact, itemsDetails: String, total: Long) {
+        // Display items
+        val adapter = SummaryItemAdapter(summary.items)
+        rvSummaryItems.adapter = adapter
+
+        // Display tax and total
+        tvTaxValue.text = "Pajak : ${formatPrice(summary.tax)}"
+        tvGrandTotal.text = "Grand Total : ${formatPrice(summary.total)}"
+    }
+
+    private fun sendWhatsAppMessage() {
+        val contact = selectedContact ?: return
+        val summary = memberSummaries[contact.id] ?: return
+
+        // Build message
+        val message = buildString {
+            appendLine("🧾 *Split Bill - ${receiptData.storeName}*")
+            appendLine("Tanggal: ${receiptData.date.split(" ")[0]}")
+            appendLine()
+            appendLine("📋 *Tagihan untuk: ${contact.name}*")
+            appendLine()
+
+            summary.items.forEach { item ->
+                appendLine("• ${item.name}")
+                appendLine("  ${item.quantity}x @ ${formatPrice(item.unitPrice.toDoubleOrNull() ?: 0.0)} = ${formatPrice(item.total.toDoubleOrNull() ?: 0.0)}")
+            }
+
+            appendLine()
+            appendLine("Subtotal: ${formatPrice(summary.subtotal)}")
+            appendLine("Pajak: ${formatPrice(summary.tax)}")
+            appendLine("━━━━━━━━━━━━━━")
+            appendLine("*Total: ${formatPrice(summary.total)}*")
+        }
+
+        // Open WhatsApp
         try {
-            // 1. Format nomor HP: Ganti 08xxx jadi 628xxx
-            var phone = member.phoneNumber.replace(Regex("[^0-9]"), "")
-            if (phone.startsWith("0")) {
-                phone = "62" + phone.substring(1)
-            }
-
-            // 2. Format Pesan WhatsApp yang Lebih Rapi
-            // Tips: Anda bisa menambahkan info No. Rekening / E-Wallet di bagian bawah
-            val message = """
-                Halo *${member.name}*👋,
-                
-                Berikut rincian patungan kamu di *${receiptData.storeName}*:
-                
-                $itemsDetails
-                💰*TOTAL: ${formatCurrency(total)}*
-                
-                Mohon segera ditransfer ya. Terima kasih! 🙏
-                
-                _(Dikirim via BillUp)_
-            """.trimIndent()
-
-            // 3. Encode pesan agar karakter khusus (spasi, enter, emoji) terbaca oleh URL
-            val encodedMessage = java.net.URLEncoder.encode(message, "UTF-8")
-
-            // 4. Intent ke WhatsApp
-            val url = "https://api.whatsapp.com/send?phone=$phone&text=$encodedMessage"
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                data = Uri.parse(url)
-            }
-            context.startActivity(intent)
-
+            val phoneNumber = contact.phoneNumber.replace(Regex("[^0-9]"), "")
+            val url = "https://api.whatsapp.com/send?phone=$phoneNumber&text=${Uri.encode(message)}"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
         } catch (e: Exception) {
-            // Menangani error jika WhatsApp tidak terinstall atau error lainnya
-            Toast.makeText(context, "Gagal membuka WhatsApp: ${e.message}", Toast.LENGTH_SHORT).show()
-            e.printStackTrace()
+            Toast.makeText(this, "WhatsApp tidak terinstall", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun formatCurrency(amount: Long): String {
-        val formatter = DecimalFormat("#,###", DecimalFormatSymbols(Locale("id", "ID")))
-        return "Rp ${formatter.format(amount)}"
+    private fun formatNumber(number: Double): String {
+        return number.toString()
+    }
+
+    private fun formatPrice(price: Double): String {
+        val formatter = DecimalFormat("#,###.##", DecimalFormatSymbols(Locale("id", "ID")))
+        return "Rp ${formatter.format(price)}"
     }
 }

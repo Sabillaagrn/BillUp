@@ -6,5 +6,6 @@ data class Contact(
     val id: String,
     val name: String,
     val phoneNumber: String,
-    var isSelected: Boolean = false
+    var isSelected: Boolean = false,
+    var isCurrentUser: Boolean = false
 ) : Serializable

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="12dp"
+    android:background="@android:color/white"
+    android:gravity="center_vertical">
+
+    <!-- Radio Button -->
+    <RadioButton
+        android:id="@+id/rb_item"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:buttonTint="@android:color/black"
+        android:clickable="false"
+        android:focusable="false" />
+
+    <!-- Item Info -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="12dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_item_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Ramen Ayam"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_item_quantity"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="x2 @ Rp 25.000"
+            android:textColor="#666666"
+            android:textSize="14sp" />
+
+        <!-- Info sisa quantity -->
+        <TextView
+            android:id="@+id/tv_remaining"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Sisa: 2"
+            android:textColor="#FF9800"
+            android:textSize="12sp"
+            android:textStyle="italic" />
+
+    </LinearLayout>
+
+    <!-- Total Price -->
+    <TextView
+        android:id="@+id/tv_item_total"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Rp 50.000"
+        android:textColor="@android:color/black"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+</LinearLayout>

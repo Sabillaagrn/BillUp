@@ -5,41 +5,44 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/white"
+    android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
+    <!-- CONTENT -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp"
+        tools:ignore="ExtraText">
 
         <TextView
             android:id="@+id/tv_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="30dp"
+            android:layout_marginTop="40dp"
+            android:layout_marginBottom="24dp"
             android:text="Daftar Kontak"
             android:textColor="@android:color/black"
-            android:textSize="24sp"
+            android:textSize="28sp"
             android:textStyle="bold" />
 
         <EditText
             android:id="@+id/et_search"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
+            android:layout_height="48dp"
+            android:layout_marginBottom="24dp"
             android:background="@drawable/rounded_search_background"
-            android:drawablePadding="8dp"
-            android:textColor="@color/black"
-            android:hint="Search"
+            android:drawableStart="@drawable/ic_search"
+            android:drawablePadding="12dp"
+            android:hint="Cari Kontak"
             android:imeOptions="actionSearch"
             android:inputType="text"
             android:maxLines="1"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:textColorHint="#8E8E93"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:textColor="@android:color/black"
+            android:textColorHint="#C7C7CC"
             android:textSize="16sp" />
 
         <androidx.recyclerview.widget.RecyclerView
@@ -48,12 +51,29 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
-            android:paddingTop="8dp"
-            android:paddingBottom="120dp"
+            android:paddingBottom="220dp"
             tools:listitem="@layout/item_contact" />
 
     </LinearLayout>
 
+    <!-- BOTTOM TEXT -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="110dp"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Lanjutkan untuk mulai scan split tagihan"
+            android:textColor="#8E8E93"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- FAB CAMERA -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_scan"
         android:layout_width="wrap_content"
@@ -61,8 +81,10 @@
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="32dp"
         android:contentDescription="Mulai Scan"
+        app:backgroundTint="#3D6B6B"
+        app:fabSize="normal"
         app:srcCompat="@drawable/ic_camera"
-        app:backgroundTint="@color/hijau"
-        app:tint="@color/white"/>
+        app:tint="@android:color/white"
+        app:layout_behavior="com.google.android.material.behavior.HideBottomViewOnScrollBehavior" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

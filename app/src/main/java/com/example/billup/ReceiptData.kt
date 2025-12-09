@@ -8,8 +8,7 @@ data class ReceiptItem(
     val quantity: Int,
     val unitPrice: String,
     val total: String,
-    // UBAH DARI String? MENJADI ArrayList<String>
-    var assignedToIds: ArrayList<String> = ArrayList()
+    var assignedToIds: ArrayList<String> = ArrayList() // untuk patungan
 ) : Serializable
 
 data class ReceiptData(

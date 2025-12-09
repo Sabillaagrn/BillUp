@@ -86,19 +86,43 @@ class ResultActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btn_confirm).setOnClickListener {
-            // Pastikan data sudah siap sebelum pindah
-            if (this::lastReceiptData.isInitialized && selectedContacts != null) {
-                val intent = Intent(this, SplitActivity::class.java)
-                intent.putExtra("RECEIPT_DATA", lastReceiptData)
-                intent.putExtra("SELECTED_CONTACTS", selectedContacts)
-                startActivity(intent)
-            } else {
-                Toast.makeText(this, "Data belum siap atau masih memproses...", Toast.LENGTH_SHORT).show()
-            }
+            goToSplitActivity()
         }
     }
 
-    // --- LOGIKA UTAMA TABSCANNER ---
+    // --- METHOD BARU: Tambah "Saya" Otomatis ---
+    private fun goToSplitActivity() {
+        // Pastikan data sudah siap
+        if (!this::lastReceiptData.isInitialized) {
+            Toast.makeText(this, "Data struk belum siap", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val finalContacts = arrayListOf<Contact>()
+
+        // 1. Tambah "Saya" sebagai contact pertama (current user)
+        val currentUser = Contact(
+            id = "me_${System.currentTimeMillis()}",
+            name = "Saya",
+            phoneNumber = "",
+            isSelected = true,
+            isCurrentUser = true
+        )
+        finalContacts.add(currentUser)
+
+        // 2. Tambah teman-teman yang dipilih dari MainActivity (jika ada)
+        if (selectedContacts != null && selectedContacts!!.isNotEmpty()) {
+            finalContacts.addAll(selectedContacts!!)
+        }
+
+        // 3. Navigate ke SplitActivity
+        val intent = Intent(this, SplitActivity::class.java)
+        intent.putExtra("RECEIPT_DATA", lastReceiptData)
+        intent.putExtra("SELECTED_CONTACTS", finalContacts)
+        startActivity(intent)
+    }
+
+    // --- LOGIKA UTAMA TABSCANNER (TIDAK DIUBAH) ---
 
     private fun processReceiptWithTabScanner(imageFile: File) {
         CoroutineScope(Dispatchers.IO).launch {
@@ -215,44 +239,42 @@ class ResultActivity : AppCompatActivity() {
 
     // Fungsi 3: Parsing JSON TabScanner ke Object ReceiptData
     private fun parseTabScannerJson(resultJson: JSONObject): ReceiptData {
-        // Ambil data Establishment (Toko)
         val establishmentStr = resultJson.optString("establishment", "Toko Tidak Dikenal")
-
-        // Ambil Tanggal (Format biasanya YYYY-MM-DD HH:MM:SS)
         val dateStr = resultJson.optString("date", "-")
 
-        // Ambil Total
         val totalStr = resultJson.optString("total", "0")
         val subTotalStr = resultJson.optString("subTotal", "0")
-        val taxStr = resultJson.optString("tax", "0")
-        // TabScanner kadang tidak memisahkan diskon, set default 0
-        val discountStr = resultJson.optString("discount", "0")
 
-        // Ambil Line Items
+        // Cek tax & discount, fallback ke alternatif label
+        var taxStr = resultJson.optString("tax", "")
+        if (taxStr.isEmpty()) {
+            // Cek field lain yang mungkin berisi PPN
+            taxStr = resultJson.optString("PPN", "0")
+        }
+
+        var discountStr = resultJson.optString("discount", "")
+        if (discountStr.isEmpty()) {
+            // Cek field lain yang mungkin berisi TOTAL DISCOUNT
+            discountStr = resultJson.optString("TOTAL DISCOUNT", "0")
+        }
+
         val itemsList = ArrayList<ReceiptItem>()
         val lineItems = resultJson.optJSONArray("lineItems")
-
         if (lineItems != null) {
             for (i in 0 until lineItems.length()) {
                 val itemObj = lineItems.getJSONObject(i)
-
-                // TabScanner punya field 'descClean' (lebih rapi) atau 'desc' (raw)
                 var desc = itemObj.optString("descClean")
                 if (desc.isEmpty()) desc = itemObj.optString("desc", "Item")
 
                 val qty = itemObj.optInt("qty", 1)
                 val lineTotal = itemObj.optString("lineTotal", "0")
-
-                // Hitung harga satuan jika tidak ada
                 val unitPrice = itemObj.optString("unitPrice", "0")
                 val finalUnitPrice = if (unitPrice == "0" || unitPrice.isEmpty()) {
                     try {
                         val totalVal = lineTotal.replace("[^0-9.]".toRegex(), "").toDouble()
                         (totalVal / qty).toString()
                     } catch (e:Exception) { "0" }
-                } else {
-                    unitPrice
-                }
+                } else unitPrice
 
                 itemsList.add(
                     ReceiptItem(
@@ -268,13 +290,14 @@ class ResultActivity : AppCompatActivity() {
         return ReceiptData(
             storeName = establishmentStr,
             date = dateStr,
-            subtotal = if (subTotalStr.isEmpty() || subTotalStr == "0") totalStr else subTotalStr, // Fallback ke total jika subtotal kosong
+            subtotal = if (subTotalStr.isEmpty() || subTotalStr == "0") totalStr else subTotalStr,
             discount = discountStr,
             tax = taxStr,
             grandTotal = totalStr,
             items = itemsList
         )
     }
+
 
     // --- HELPER FUNCTIONS ---
 

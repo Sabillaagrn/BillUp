@@ -13,7 +13,8 @@ class ReceiptAdapter(private val items: List<ReceiptItem>) :
     RecyclerView.Adapter<ReceiptAdapter.ItemViewHolder>() {
 
     inner class ItemViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val nameQty: TextView = itemView.findViewById(R.id.tv_item_name_qty)
+        val name: TextView = itemView.findViewById(R.id.tv_item_name)
+        val qtyPrice: TextView = itemView.findViewById(R.id.tv_item_qty_price)
         val total: TextView = itemView.findViewById(R.id.tv_item_total)
     }
 
@@ -26,19 +27,23 @@ class ReceiptAdapter(private val items: List<ReceiptItem>) :
     override fun onBindViewHolder(holder: ItemViewHolder, position: Int) {
         val item = items[position]
 
-        // Format: Nama Barang xQty HargaSatuan
-        val qtyText = if (item.quantity > 0 && item.quantity != 1) " x${item.quantity}" else ""
+        // Qty text (x2, x3, dll)
+        val qtyText = if (item.quantity > 1) "x${item.quantity}" else "x1"
 
-        // Gunakan item.unitPrice untuk unit price, tapi pastikan tidak berantakan
+        // Format harga satuan (Rp 12.000)
         val unitPriceText = if (item.unitPrice.isNotBlank() && item.unitPrice != "-") {
-            " ${formatCurrency(item.unitPrice)}"
+            formatCurrency(item.unitPrice)
         } else {
             ""
         }
 
-        holder.nameQty.text = "${item.name}${qtyText}${unitPriceText}"
+        // Set nama
+        holder.name.text = item.name
 
-        // Total per item, tanpa prefix 'Rp'
+        // Set qty & unit price
+        holder.qtyPrice.text = "$qtyText · $unitPriceText"
+
+        // Set total item (tanpa prefix Rp)
         holder.total.text = formatCurrency(item.total).removePrefix("Rp ")
     }
 
@@ -46,10 +51,10 @@ class ReceiptAdapter(private val items: List<ReceiptItem>) :
 
     private fun formatCurrency(amount: String): String {
         return try {
-            val numString = amount.replace("[^0-9]".toRegex(), "")
-            if (numString.isEmpty()) return amount
+            val clean = amount.replace("[^0-9]".toRegex(), "")
+            if (clean.isEmpty()) return amount
 
-            val num = numString.toLong()
+            val num = clean.toLong()
             val formatter = DecimalFormat("#,###", DecimalFormatSymbols(Locale("id", "ID")))
             "Rp ${formatter.format(num)}"
         } catch (e: Exception) {
